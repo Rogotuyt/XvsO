@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,19 +24,51 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses-dev libtinfo6 cmake libffi-dev libssl-dev ccache
+        sudo apt-get install -y git zip unzip openjdk-17-jdk autoconf automake libtool libtool-bin pkg-config zlib1g-dev libncurses-dev libtinfo6 cmake libffi-dev libssl-dev ccache
 
     - name: Install Buildozer and Cython
       run: |
         pip install --upgrade pip
         pip install buildozer cython==0.29.36
 
+    - name: Cache Buildozer data
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.buildozer
+          .buildozer
+        key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+        restore-keys: |
+          buildozer-${{ runner.os }}-
+
     - name: Build APK with Buildozer
+      id: build
       run: |
-        buildozer -v android debug
+        set -o pipefail
+        buildozer -v android debug 2>&1 | tee build.log
+
+    - name: Show error summary
+      if: failure() && steps.build.outcome == 'failure'
+      run: |
+        clean() { sed -e 's/\x1b\[[0-9;]*m//g' -e 's/\r//g' -e 's/%/%25/g' | cut -c1-300; }
+        errs=$(grep -inE 'error|fail|exception|license|not found|no such' build.log | clean | head -15 | awk '{printf "%s%%0A", $0}')
+        tailpart=$(tail -n 25 build.log | clean | awk '{printf "%s%%0A", $0}')
+        echo "::error title=Buildozer errors::${errs}"
+        echo "::error title=Buildozer log tail::${tailpart}"
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
         name: tictactoe-apk
         path: bin/*.apk
+
+    - name: Publish APK to GitHub Release
+      if: github.ref == 'refs/heads/main'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release delete latest --yes --cleanup-tag || true
+        gh release create latest bin/*.apk \
+          --title "XvsO debug APK" \
+          --notes "Автоматическая сборка из коммита ${{ github.sha }}" \
+          --target "${{ github.sha }}"
