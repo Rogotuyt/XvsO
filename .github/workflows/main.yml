@@ -50,14 +50,17 @@ jobs:
     - name: Show error summary
       if: failure() && steps.build.outcome == 'failure'
       run: |
-        clean() { sed -e 's/\x1b\[[0-9;]*m//g' -e 's/\r//g' -e 's/%/%25/g' | cut -c1-250; }
-        n=$(grep -n -m1 -E '^# (Environ|Command failed|Buildozer failed)' build.log | cut -d: -f1)
-        n=${n:-$(wc -l < build.log)}
-        start=$((n-45)); [ $start -lt 1 ] && start=1
-        before=$(sed -n "${start},${n}p" build.log | grep -v '^# ' | clean | awk '{printf "%s%%0A", $0}')
-        cmd=$(grep -m3 -E '^# (Command failed|Cwd)' build.log | clean | awk '{printf "%s%%0A", $0}')
+        sed -e 's/\x1b\[[0-9;]*[A-Za-z]//g' -e 's/\r/\n/g' build.log > clean.log
+        enc() { sed -e 's/%/%25/g' | cut -c1-220 | awk '{printf "%s%%0A", $0}'; }
+        n=$(grep -n -m1 -E '^# (Environ|Command failed|Buildozer failed)' clean.log | cut -d: -f1)
+        n=${n:-$(wc -l < clean.log)}
+        start=$((n-40)); [ $start -lt 1 ] && start=1
+        before=$(sed -n "${start},${n}p" clean.log | grep -v '^# ' | enc)
+        cmd=$(grep -m4 -E '^# (Command failed|Cwd|Environ)' clean.log | enc)
+        errs=$(grep -n -iE 'error:|fatal|traceback|no such file|not found|failed' clean.log | grep -v -i 'license' | head -12 | enc)
         echo "::error title=Before failure::${before}"
         echo "::error title=Failed command::${cmd}"
+        echo "::error title=Error lines::${errs}"
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
