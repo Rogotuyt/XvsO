@@ -50,11 +50,14 @@ jobs:
     - name: Show error summary
       if: failure() && steps.build.outcome == 'failure'
       run: |
-        clean() { sed -e 's/\x1b\[[0-9;]*m//g' -e 's/\r//g' -e 's/%/%25/g' | cut -c1-300; }
-        errs=$(grep -inE 'error|fail|exception|license|not found|no such' build.log | clean | head -15 | awk '{printf "%s%%0A", $0}')
-        tailpart=$(tail -n 25 build.log | clean | awk '{printf "%s%%0A", $0}')
-        echo "::error title=Buildozer errors::${errs}"
-        echo "::error title=Buildozer log tail::${tailpart}"
+        clean() { sed -e 's/\x1b\[[0-9;]*m//g' -e 's/\r//g' -e 's/%/%25/g' | cut -c1-250; }
+        n=$(grep -n -m1 -E '^# (Environ|Command failed|Buildozer failed)' build.log | cut -d: -f1)
+        n=${n:-$(wc -l < build.log)}
+        start=$((n-45)); [ $start -lt 1 ] && start=1
+        before=$(sed -n "${start},${n}p" build.log | grep -v '^# ' | clean | awk '{printf "%s%%0A", $0}')
+        cmd=$(grep -m3 -E '^# (Command failed|Cwd)' build.log | clean | awk '{printf "%s%%0A", $0}')
+        echo "::error title=Before failure::${before}"
+        echo "::error title=Failed command::${cmd}"
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
